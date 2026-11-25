@@ -8,6 +8,7 @@
 #include <emscripten.h>
 #include <emscripten/bind.h>
 #include <emscripten/html5.h>
+#include <emscripten/threading.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -79,13 +80,23 @@ void PostEvent(const std::string &type, const std::string &json) {
             t, j);
 }
 
+// A worker thread never prints: stdout from a thread is a call the browser main thread has to
+// run while the thread waits (Emscripten proxies fd_write), and ihslib logs with its locks held
+// (the video channel's state lock, a data channel's window lock). With the main thread stuck,
+// the first Info line stopped the video thread for good, the timer thread behind its lock a
+// second later, and the receive thread once the video window was full. Lines from a thread go
+// to the page as events, which wait for nobody, and the page prints them.
 void LogToConsole(IHS_LogLevel level, const char *tag, const char *message) {
-    std::printf("[%s %s] %s\n", IHS_LogLevelName(level), tag, message);
+    bool mainThread = emscripten_is_main_browser_thread();
+    if (mainThread) {
+        std::printf("[%s %s] %s\n", IHS_LogLevelName(level), tag, message);
+    }
     // Info and above also go to the UI's log overlay (blue key), the only log a TV user
     // can read without sdb.
-    if (level <= IHS_LogLevelInfo) {
-        PostEvent("log", "{\"level\":" + std::to_string(level) + ",\"tag\":" + Quote(tag) +
-                                 ",\"message\":" + Quote(message) + "}");
+    if (level <= IHS_LogLevelInfo || !mainThread) {
+        PostEvent("log", "{\"level\":" + std::to_string(level) + ",\"name\":" + Quote(IHS_LogLevelName(level)) +
+                                 ",\"tag\":" + Quote(tag) + ",\"message\":" + Quote(message) +
+                                 ",\"print\":" + (mainThread ? "false" : "true") + "}");
     }
 }
 

@@ -1362,7 +1362,11 @@
             }
         });
         tsl.on('log', function (d) {
-            var level = ['FATAL', 'ERROR', 'WARN', 'info'][d.level] || 'debug';
+            // The module's threads don't print (see LogToConsole in app.cpp): their lines are
+            // printed here.
+            if (d.print) console.log('[' + d.name + ' ' + d.tag + '] ' + d.message);
+            if (d.level > 3) return;
+            var level = ['FATAL', 'ERROR', 'WARN', 'info'][d.level];
             note(level + ' [' + d.tag + '] ' + d.message);
             if (d.level <= 2) console.warn('[' + d.tag + '] ' + d.message);
         });
