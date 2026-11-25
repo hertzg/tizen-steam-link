@@ -871,6 +871,12 @@
     }
 
     function reloadPage() {
+        enterStep('reload after a stream');
+        // Session storage lives through a reload but not through a restart of the app, so the
+        // page that comes up knows the reload went through.
+        try {
+            sessionStorage.setItem('tsl.reloaded', '1');
+        } catch (e) { /* not important */ }
         location.reload();
     }
 
@@ -904,13 +910,45 @@
             '\naudio: ' + (st.audioAppended || 0) + ' frames, ' + (st.audioConcealed || 0) + ' lost ones filled in';
     }
 
+    // The page froze for good twice on a Q60A (Tizen 6), once during a stream and once after one,
+    // with nothing in the log: a stuck main thread can't write one. So the page notes the step it
+    // is about to take where the next start can read it, and that start reports a step that never
+    // finished.
+    function enterStep(name) {
+        try {
+            localStorage.setItem('tsl.step', name);
+        } catch (e) { /* not important */ }
+    }
+
+    function leaveStep() {
+        try {
+            localStorage.removeItem('tsl.step');
+        } catch (e) { /* not important */ }
+    }
+
+    function reportUnfinishedStep() {
+        var step = null, reloaded = false;
+        try {
+            step = localStorage.getItem('tsl.step');
+            localStorage.removeItem('tsl.step');
+            reloaded = !!sessionStorage.getItem('tsl.reloaded');
+            sessionStorage.removeItem('tsl.reloaded');
+        } catch (e) { /* not important */ }
+        if (!step || reloaded) return;
+        note('WARN the app froze last time in: ' + step);
+        console.warn('[Stream] The app froze last time in: ' + step);
+    }
+
     function updateStats() {
         var s = state.stream;
         if (!s || !mod) return;
         var st = null;
         try {
+            enterStep('module statistics');
             st = JSON.parse(mod.stats());
+            leaveStep();
         } catch (e) {
+            leaveStep();
             // A trap in the module means its memory is broken; anything else counts as nothing
             // new below.
             if (e instanceof WebAssembly.RuntimeError) {
@@ -932,7 +970,13 @@
                 'target ' + (st.targetBitrate / 1000).toFixed(1) + ' Mbit/s' +  // Steam sends kbit/s
                 (st.framerateDen ? ' @ ' + (st.framerateNum / st.framerateDen).toFixed(0) + ' fps' : '') + '\n' +
                 'keyframes ' + st.keyFrames + '   failed appends ' + (st.videoFailed + st.audioFailed) + '\n' +
-                networkStats(st, s.last) + '\n' + playerStats(st);
+                networkStats(st, s.last);
+            // Only for the overlay: these read the TV's player from the main thread, once a second.
+            if (state.settings.stats) {
+                enterStep('player statistics');
+                text += '\n' + playerStats(st);
+                leaveStep();
+            }
         }
         s.last = {time: now, videoFrames: st.videoFrames, videoBytes: st.videoBytes,
             videoPackets: st.videoPackets || 0, videoPacketsLost: st.videoPacketsLost || 0};
@@ -1533,6 +1577,7 @@
         try {
             state.h264Only = sessionStorage.getItem('tsl.h264Only') === '1';
         } catch (e) { /* not important */ }
+        reportUnfinishedStep();
 
         // Without WebAssembly (TVs older than Tizen 5.5) the module can't load at all, and a module
         // that never finishes starting leaves a page that looks fine but can't do anything. Say so.
