@@ -13,5 +13,5 @@ if [[ "${1:-}" == "--rebuild-image" ]] || ! docker image inspect "$IMAGE" >/dev/
     docker build --platform linux/amd64 --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" -t "$IMAGE" docker/
 fi
 
-docker run --platform linux/amd64 --rm -v "$PWD":/src -w /src "$IMAGE" bash scripts/package-in-container.sh
+docker run --platform linux/amd64 --rm -e TSL_DEBUG_MALLOC -v "$PWD":/src -w /src "$IMAGE" bash scripts/package-in-container.sh
 echo "Package: out/TizenSteamLink.wgt"

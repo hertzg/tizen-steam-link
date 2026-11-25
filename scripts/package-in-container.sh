@@ -2,7 +2,8 @@
 # Runs inside the toolchain image (see scripts/build-tizen.sh).
 set -euo pipefail
 
-cmake -S . -B build/tizen -G Ninja -DCMAKE_TOOLCHAIN_FILE="$TSL_EMSCRIPTEN_TOOLCHAIN" -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/tizen -G Ninja -DCMAKE_TOOLCHAIN_FILE="$TSL_EMSCRIPTEN_TOOLCHAIN" -DCMAKE_BUILD_TYPE=Release \
+    -DTSL_DEBUG_MALLOC="${TSL_DEBUG_MALLOC:-OFF}"
 cmake --build build/tizen
 python3 scripts/check-tizen-build.py build/tizen
 rm -rf build/tizen/stage

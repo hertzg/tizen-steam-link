@@ -15,6 +15,14 @@ target_link_options(tsl-wasm PRIVATE
         "SHELL:-s ENVIRONMENT_MAY_BE_TIZEN"
         "SHELL:-s EXTRA_EXPORTED_RUNTIME_METHODS=['UTF8ToString']")
 
+# Debugging heap corruption: -g3 at link time makes this Emscripten pick its debug
+# dlmalloc, which checks the heap's bookkeeping on every malloc and free and aborts at
+# the first broken chunk. Slower and bigger, so never for a release.
+option(TSL_DEBUG_MALLOC "Link the TV app with Emscripten's debug malloc" OFF)
+if(TSL_DEBUG_MALLOC)
+    target_link_options(tsl-wasm PRIVATE -g3)
+endif()
+
 set(TSL_WIDGET_DIR widget)
 install(FILES
         ${CMAKE_CURRENT_BINARY_DIR}/tsl.js
