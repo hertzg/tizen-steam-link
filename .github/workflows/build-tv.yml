@@ -1,0 +1,47 @@
+name: Build TV app
+
+# Builds the TV package from any branch on demand, to try a change on a TV
+# before it reaches master. The package is kept as a workflow artifact; nothing
+# is tagged or released. Start it from the Actions tab, or with
+# `gh workflow run build-tv.yml --ref <branch>`.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same toolchain image and cache as the release workflow.
+      - name: Runner user
+        id: user
+        run: |
+          echo "uid=$(id -u)" >> "$GITHUB_OUTPUT"
+          echo "gid=$(id -g)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Toolchain image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          load: true
+          tags: tizen-steam-link-toolchain
+          build-args: |
+            UID=${{ steps.user.outputs.uid }}
+            GID=${{ steps.user.outputs.gid }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the TV app
+        run: scripts/build-tizen.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TizenSteamLink-${{ github.sha }}
+          path: out/TizenSteamLink.wgt
+          if-no-files-found: error
