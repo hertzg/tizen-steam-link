@@ -350,6 +350,7 @@
     }
 
     function updateClock() {
+        step('updateClock');
         var now = new Date();
         $('#clock').textContent = now.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
     }
@@ -437,6 +438,7 @@
     // each answer scheduled a render. Rebuilding the row every time repainted the whole screen
     // several times a second, which on a TV kept the page busy and the menu sluggish.
     function renderHosts(onlyIfChanged) {
+        step('renderHosts');
         var grid = $('#hosts');
         var cur = focused();
         var keepIp = cur && grid.contains(cur) ? cardKey(cur) : null;
@@ -871,6 +873,7 @@
     }
 
     function reloadPage() {
+        step('reload');
         enterStep('reload after a stream');
         // Session storage lives through a reload but not through a restart of the app, so the
         // page that comes up knows the reload went through.
@@ -939,11 +942,60 @@
         console.warn('[Stream] The app froze last time in: ' + step);
     }
 
+    // Diagnostics for input that gets stuck and for the page freezing: what kept the main thread
+    // busy, and when the TV took the focus (and with it the gamepads) away from the page.
+    function watchMainThread() {
+        try {
+            new PerformanceObserver(function (list) {
+                list.getEntries().forEach(function (entry) {
+                    if (entry.duration < 100) return;
+                    var from = (entry.attribution || []).map(function (a) {
+                        return a.containerType + ' ' + (a.containerSrc || a.containerName || '');
+                    }).join(', ');
+                    console.warn('[Main] task of ' + Math.round(entry.duration) + ' ms, ' + entry.name +
+                        (from ? ' (' + from + ')' : '') + lastStep());
+                });
+            }).observe({entryTypes: ['longtask']});
+        } catch (e) {
+            console.warn('[Main] no longtask observer', e);
+        }
+        // The same from a timer, in case the observer misses a task: a tick that comes late.
+        var tick = performance.now();
+        setInterval(function () {
+            var now = performance.now();
+            if (now - tick > 350) {
+                console.warn('[Main] timers held up for ' + Math.round(now - tick - 100) + ' ms' + lastStep());
+            }
+            tick = now;
+        }, 100);
+        ['focus', 'blur'].forEach(function (type) {
+            window.addEventListener(type, function () {
+                console.warn('[Main] window ' + type + ', hidden=' + document.hidden);
+            });
+        });
+        document.addEventListener('visibilitychange', function () {
+            console.warn('[Main] visibility ' + document.visibilityState);
+        });
+    }
+
+    // The last timer step that ran, for the lines above.
+    var stepName = '', stepTime = 0;
+
+    function lastStep() {
+        return stepName ? ', last step ' + stepName + ' ' + Math.round(performance.now() - stepTime) + ' ms ago' : '';
+    }
+
+    function step(name) {
+        stepName = name;
+        stepTime = performance.now();
+    }
+
     function updateStats() {
         var s = state.stream;
         if (!s || !mod) return;
         var st = null;
         try {
+            step('module statistics');
             enterStep('module statistics');
             st = JSON.parse(mod.stats());
             leaveStep();
@@ -1522,6 +1574,7 @@
     }
 
     function probeSaved() {
+        step('probeSaved');
         if (!mod) return;
         state.broadcasts.forEach(function (b) {
             mod.probe(b);
@@ -1578,6 +1631,7 @@
             state.h264Only = sessionStorage.getItem('tsl.h264Only') === '1';
         } catch (e) { /* not important */ }
         reportUnfinishedStep();
+        watchMainThread();
 
         // Without WebAssembly (TVs older than Tizen 5.5) the module can't load at all, and a module
         // that never finishes starting leaves a page that looks fine but can't do anything. Say so.

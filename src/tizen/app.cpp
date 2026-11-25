@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -524,6 +525,9 @@ private:
                 lastSession = session.get();
                 for (bool &c : padConnected) c = false;
             }
+            // Diagnostics: every gamepad read below is a call the main thread runs while this
+            // thread waits, so a busy main thread holds the pads' last state on the computer.
+            auto readStart = std::chrono::steady_clock::now();
             if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
                 usleep(200 * 1000);
                 continue;
@@ -575,6 +579,12 @@ private:
                 }
             }
             session.reset();
+            auto readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                                readStart).count();
+            if (readMs > 50) {
+                Log(IHS_LogLevelWarn, "Gamepad", "Reading the gamepads took %d ms: the main thread was busy",
+                    static_cast<int>(readMs));
+            }
             usleep(4 * 1000);
         }
     }
