@@ -23,9 +23,9 @@ endif ()
 # gap longer than their window, HDR, a race in the silence check, size checks for unconnected
 # packets that hold on 32 bits, FEC allocation failures, empty audio codec data, an adaptive
 # bitrate, video that can go on after a lost frame, a round trip that skips negative samples,
-# the frame stats Steam's bitrate control needs, and a packet window that ignores resent copies
-# of packets it already delivered, and control messages resent until Steam confirms them; each
-# patch starts with a description.
+# the frame stats Steam's bitrate control needs, a packet window that ignores resent copies
+# of packets it already delivered, control messages resent until Steam confirms them, and a HID
+# poll tick that could run into a device being closed; each patch starts with a description.
 # (0003, logging for the pairing request, was dropped once pairing worked on the TV.)
 set(TSL_IHSLIB_PATCHES ${CMAKE_CURRENT_LIST_DIR}/../patches/ihslib)
 FetchContent_Declare(ihslib
@@ -61,6 +61,7 @@ FetchContent_Declare(ihslib
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0029-frame-stats-for-bitrate-control.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0030-window-ignore-polled-duplicate.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0031-retransmission-backoff.patch
+              COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0032-hid-close-poll-race.patch
         SOURCE_SUBDIR no-cmake)
 
 # protobuf-c runtime only; the generated .pb-c.c files ship with ihslib.

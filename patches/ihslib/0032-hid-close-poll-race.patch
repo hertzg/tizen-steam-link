@@ -1,0 +1,65 @@
+Stop the HID poll tick from using a device while it is closed and freed.
+
+The tick (every 4 ms, on the timer thread) takes a snapshot of the open devices, then calls
+each one's poll() with the device lock held. A close on another thread (Steam's CloseDevice on
+the session thread, or the tick's own close of a device that failed) marked the device closed
+and freed it without taking that lock, so a tick that already had its snapshot went on into
+freed memory: poll() writes the device's state and report buffer, and the lock itself is read
+through device->managed, which the close had cleared. On a heap that shows up later and
+elsewhere, as a corrupted free list in an unrelated malloc.
+
+IHS_HIDManagedDeviceClose now marks the device closed under the device lock, and the tick
+checks the flag under the same lock before it calls poll(). Once the close has let go of the
+lock no tick is inside the device or can enter it, so the free that follows is safe. A second
+close of the same device (the tick and Steam both closing it) finds the flag set and returns.
+
+diff --git a/src/hid/device.c b/src/hid/device.c
+index adf987a..190503a 100644
+--- a/src/hid/device.c
++++ b/src/hid/device.c
+@@ -42,11 +42,20 @@ void IHS_HIDManagedDeviceOpened(IHS_HIDManagedDevice *managed) {
+ 
+ void IHS_HIDManagedDeviceClose(IHS_HIDManagedDevice *managed) {
+     assert(managed != NULL);
+-    IHS_HIDDevice *device = managed->device;
+     assert(managed->manager != NULL);
++    // The poll tick runs poll() with this lock held and skips closed devices. Marking the device
++    // closed under the lock means no tick is inside it, or can enter it, once the lock is let go.
++    // A second close (the tick closing a dead device, Steam closing it too) finds it closed.
++    IHS_MutexLock(managed->lock);
++    if (managed->closed) {
++        IHS_MutexUnlock(managed->lock);
++        return;
++    }
++    IHS_HIDManagerRemoveClosedDevice(managed->manager, managed);
++    IHS_MutexUnlock(managed->lock);
++    IHS_HIDDevice *device = managed->device;
+     device->cls->close(device);
+     IHS_HIDManagerNotifyDeviceClosed(managed->manager, managed);
+-    IHS_HIDManagerRemoveClosedDevice(managed->manager, managed);
+     device->managed = NULL;
+     device->cls->free(device);
+ }
+diff --git a/src/hid/manager.c b/src/hid/manager.c
+index 58de065..fbd26e0 100644
+--- a/src/hid/manager.c
++++ b/src/hid/manager.c
+@@ -228,10 +228,15 @@ static uint64_t HIDPollTick(int runCount, void *context) {
+     bool anyData = false;
+     for (size_t i = 0; i < count; ++i) {
+         IHS_HIDManagedDevice *managed = snapshot[i];
+-        if (managed->device->cls->poll == NULL) continue;
+-        IHS_HIDDeviceLock(managed->device);
++        // The snapshot can be older than a close on another thread: the lock and the closed flag
++        // decide, as the device is freed right after it is marked closed (IHS_HIDManagedDeviceClose).
++        IHS_MutexLock(managed->lock);
++        if (managed->closed || managed->device->cls->poll == NULL) {
++            IHS_MutexUnlock(managed->lock);
++            continue;
++        }
+         int result = managed->device->cls->poll(managed->device);
+-        IHS_HIDDeviceUnlock(managed->device);
++        IHS_MutexUnlock(managed->lock);
+         if (result > 0) {
+             anyData = true;
+         } else if (result < 0) {
