@@ -1004,6 +1004,9 @@
             // A trap in the module means its memory is broken; anything else counts as nothing
             // new below.
             if (e instanceof WebAssembly.RuntimeError) {
+                // Diagnostics: a trap on the main thread (here, inside mod.stats()) has no other
+                // trace; the worker lines of a thread crash don't come for it.
+                console.warn('[Main] the module trapped on the main thread in mod.stats(): ' + e.stack);
                 tsl.emit('fatal', {message: 'The streaming module stopped: ' + e.message, crashed: true});
                 return;
             }
